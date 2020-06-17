@@ -1,0 +1,178 @@
+kind: pipeline
+name: lint
+
+steps:
+- name: restore-cache-with-gzip
+  image: meltwater/drone-cache
+  environment:
+    AWS_ACCESS_KEY_ID:
+      from_secret: access_key
+    AWS_SECRET_ACCESS_KEY:
+      from_secret: secret_key
+  pull: true
+  settings:
+    restore: true
+    region: us-east-1
+    bucket: gradeup-drone-ci
+    cache_key: '{{ .Repo.Name}}_{{ checksum "package.json" }}_{{ checksum "packages/gradeup/package.json" }}_{{ checksum "packages/giraffe/package.json" }}'
+    mount:
+      - node_modules
+      - packages/gradeup/node_modules
+      - packages/giraffe/node_modules
+  when:
+    event: pull_request
+
+- name: lint
+  image: gradeup/node10-ci:latest
+  commands:
+  - sh ./.lint.ci.sh
+  when:
+    event: pull_request
+
+- name: rebuild
+  image: meltwater/drone-cache
+  pull: true
+  environment:
+    AWS_ACCESS_KEY_ID:
+      from_secret: access_key
+    AWS_SECRET_ACCESS_KEY:
+      from_secret: secret_key
+  settings:
+    rebuild: true
+    cache_key: '{{ .Repo.Name}}_{{ checksum "package.json" }}_{{ checksum "packages/gradeup/package.json" }}_{{ checksum "packages/giraffe/package.json" }}'
+    bucket: gradeup-drone-ci
+    region: us-east-1
+    mount:
+      - node_modules
+      - packages/gradeup/node_modules
+      - packages/giraffe/node_modules
+  when:
+    event: pull_request
+
+- name: update-status-to-github
+  image: codehimanshu/gitdrone:1.6
+  pull: true
+  environment:
+    DRONE_PULL_REQUEST: ${DRONE_PULL_REQUEST}
+    DRONE_REPO_OWNER: ${DRONE_REPO_NAMESPACE}
+    DRONE_REPO_NAME: ${DRONE_REPO_NAME}
+    DRONE_ACCESS_TOKEN:
+      from_secret: DRONE_ACCESS_TOKEN
+    DRONE_HOST: ${DRONE_SYSTEM_HOST}
+    DRONE_BUILD_NUMBER: ${DRONE_BUILD_NUMBER}
+    GITHUB_INSTALLATION_ID:
+      from_secret: GITHUB_INSTALLATION_ID
+    GITHUB_APP_ID:
+      from_secret: GITHUB_APP_ID
+    PRIVATE_KEY:
+      from_secret: PRIVATE_KEY
+  when:
+    status: [ failure ]
+    event: pull_request
+
+---
+kind: pipeline
+name: build
+
+steps:
+- name: publish
+  image: plugins/ecr
+  settings:
+    access_key:
+      from_secret: aws_access_key_id
+    environment:
+      AWS_ACCESS_KEY_ID:
+        from_secret: aws_access_key_id
+      AWS_SECRET_ACCESS_KEY:
+        from_secret: aws_secret_access_key
+      AWS_DEFAULT_REGION: us-east-1
+    secret_key:
+      from_secret: aws_secret_access_key
+    repo: 441584963616.dkr.ecr.us-east-1.amazonaws.com/mothership
+    registry: 441584963616.dkr.ecr.us-east-1.amazonaws.com
+    build_args_from_env:
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_DEFAULT_REGION
+    build_args:
+      - AWS_DEFAULT_REGION=us-east-1
+    tags:
+      - latest
+      - ${DRONE_TAG}
+  when:
+    event: tag
+
+- name: update-status-to-github
+  image: codehimanshu/gitdrone:1.6
+  pull: true
+  environment:
+    DRONE_PULL_REQUEST: ${DRONE_PULL_REQUEST}
+    DRONE_REPO_OWNER: ${DRONE_REPO_NAMESPACE}
+    DRONE_REPO_NAME: ${DRONE_REPO_NAME}
+    DRONE_ACCESS_TOKEN:
+      from_secret: DRONE_ACCESS_TOKEN
+    DRONE_HOST: ${DRONE_SYSTEM_HOST}
+    DRONE_BUILD_NUMBER: ${DRONE_BUILD_NUMBER}
+    GITHUB_INSTALLATION_ID:
+      from_secret: GITHUB_INSTALLATION_ID
+    GITHUB_APP_ID:
+      from_secret: GITHUB_APP_ID
+    PRIVATE_KEY:
+      from_secret: PRIVATE_KEY 
+  when:
+    status: [ failure ]
+    event: tag
+
+---
+kind: pipeline
+name: build-release
+
+steps:
+- name: publish
+  image: plugins/ecr
+  settings:
+    access_key:
+      from_secret: aws_access_key_id
+    environment:
+      AWS_ACCESS_KEY_ID:
+        from_secret: aws_access_key_id
+      AWS_SECRET_ACCESS_KEY:
+        from_secret: aws_secret_access_key
+      AWS_DEFAULT_REGION: us-east-1
+    secret_key:
+      from_secret: aws_secret_access_key
+    repo: 441584963616.dkr.ecr.us-east-1.amazonaws.com/mothership
+    registry: 441584963616.dkr.ecr.us-east-1.amazonaws.com
+    build_args_from_env:
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_DEFAULT_REGION
+    build_args:
+      - AWS_DEFAULT_REGION=us-east-1
+    tags:
+      - ${DRONE_BRANCH}
+  when:
+    branch:
+    - release-*
+
+- name: update-status-to-github
+  image: codehimanshu/gitdrone:1.6
+  pull: true
+  environment:
+    DRONE_PULL_REQUEST: ${DRONE_PULL_REQUEST}
+    DRONE_REPO_OWNER: ${DRONE_REPO_NAMESPACE}
+    DRONE_REPO_NAME: ${DRONE_REPO_NAME}
+    DRONE_ACCESS_TOKEN:
+      from_secret: DRONE_ACCESS_TOKEN
+    DRONE_HOST: ${DRONE_SYSTEM_HOST}
+    DRONE_BUILD_NUMBER: ${DRONE_BUILD_NUMBER}
+    GITHUB_INSTALLATION_ID:
+      from_secret: GITHUB_INSTALLATION_ID
+    GITHUB_APP_ID:
+      from_secret: GITHUB_APP_ID
+    PRIVATE_KEY:
+      from_secret: PRIVATE_KEY 
+  when:
+    status: [ failure ]
+    branch:
+    - release-*
